@@ -254,49 +254,42 @@ impl SWT2Planner {
         dst.copy_from_slice(&coeffs[0..self.subband_size()]);
     }
 
-    fn build_fourier_kernels(w: &Wavelet<f32>, level: usize, image_size: [usize; 2]) -> [Vec<Complex32>; 4] {
+
+    fn build_fourier_kernels(
+        w: &Wavelet<f32>,
+        level: usize,
+        image_size: [usize; 2],
+    ) -> [Vec<Complex32>; 4] {
         let hi_d = w.hi_d();
         let lo_d = w.lo_d();
+
         let d_hi_d = dilate_filter(level + 1, hi_d);
         let d_lo_d = dilate_filter(level + 1, lo_d);
 
         let nx = image_size[0];
         let ny = image_size[1];
 
-        // padded kernels for x dimension
-        let mut kx_hi = vec![0.0f32; nx];
-        let mut kx_lo = vec![0.0f32; nx];
-        kx_hi[0..d_hi_d.len()].copy_from_slice(&d_hi_d);
-        kx_lo[0..d_lo_d.len()].copy_from_slice(&d_lo_d);
+        // Embed the dilated filters so their center is at index 0
+        // in the circular FFT domain.
+        let mut kx_hi: Vec<Complex32> = embed_filter_centered(&d_hi_d, nx)
+            .into_iter()
+            .map(|v| Complex32::new(v, 0.0))
+            .collect();
 
-        // padded kernels for y dimension
-        let mut ky_hi = vec![0.0f32; ny];
-        let mut ky_lo = vec![0.0f32; ny];
-        ky_hi[0..d_hi_d.len()].copy_from_slice(&d_hi_d);
-        ky_lo[0..d_lo_d.len()].copy_from_slice(&d_lo_d);
+        let mut kx_lo: Vec<Complex32> = embed_filter_centered(&d_lo_d, nx)
+            .into_iter()
+            .map(|v| Complex32::new(v, 0.0))
+            .collect();
 
-        // array dims for kernels
-        let kx_dim = ArrayDim::from_shape(&[nx]);
-        let ky_dim = ArrayDim::from_shape(&[ny]);
+        let mut ky_hi: Vec<Complex32> = embed_filter_centered(&d_hi_d, ny)
+            .into_iter()
+            .map(|v| Complex32::new(v, 0.0))
+            .collect();
 
-        // buffers for shifted kernels
-        // let mut kx_hi_shift = vec![0.0f32; nx];
-        // let mut kx_lo_shift = vec![0.0f32; nx];
-        // let mut ky_hi_shift = vec![0.0f32; ny];
-        // let mut ky_lo_shift = vec![0.0f32; ny];
-
-        // shift kernels for fft
-        // let inv = false;
-        // kx_dim.fftshift(&kx_hi, &mut kx_hi_shift, inv);
-        // kx_dim.fftshift(&kx_lo, &mut kx_lo_shift, inv);
-        // ky_dim.fftshift(&ky_hi, &mut ky_hi_shift, inv);
-        // ky_dim.fftshift(&ky_lo, &mut ky_lo_shift, inv);
-
-        // build the complex kernels for fft
-        let mut kx_hi: Vec<Complex32> = kx_hi.into_iter().map(|v| Complex32::new(v, 0.0)).collect();
-        let mut kx_lo: Vec<Complex32> = kx_lo.into_iter().map(|v| Complex32::new(v, 0.0)).collect();
-        let mut ky_hi: Vec<Complex32> = ky_hi.into_iter().map(|v| Complex32::new(v, 0.0)).collect();
-        let mut ky_lo: Vec<Complex32> = ky_lo.into_iter().map(|v| Complex32::new(v, 0.0)).collect();
+        let mut ky_lo: Vec<Complex32> = embed_filter_centered(&d_lo_d, ny)
+            .into_iter()
+            .map(|v| Complex32::new(v, 0.0))
+            .collect();
 
         // FFT the 1-D kernels
         fftw_fftn(&mut kx_hi, &[nx], FftDirection::Forward, NormalizationType::Unitary);
@@ -306,6 +299,59 @@ impl SWT2Planner {
 
         [kx_hi, kx_lo, ky_hi, ky_lo]
     }
+
+    // fn build_fourier_kernels(w: &Wavelet<f32>, level: usize, image_size: [usize; 2]) -> [Vec<Complex32>; 4] {
+    //     let hi_d = w.hi_d();
+    //     let lo_d = w.lo_d();
+    //     let d_hi_d = dilate_filter(level + 1, hi_d);
+    //     let d_lo_d = dilate_filter(level + 1, lo_d);
+    //
+    //     let nx = image_size[0];
+    //     let ny = image_size[1];
+    //
+    //     // padded kernels for x dimension
+    //     let mut kx_hi = vec![0.0f32; nx];
+    //     let mut kx_lo = vec![0.0f32; nx];
+    //     kx_hi[0..d_hi_d.len()].copy_from_slice(&d_hi_d);
+    //     kx_lo[0..d_lo_d.len()].copy_from_slice(&d_lo_d);
+    //
+    //     // padded kernels for y dimension
+    //     let mut ky_hi = vec![0.0f32; ny];
+    //     let mut ky_lo = vec![0.0f32; ny];
+    //     ky_hi[0..d_hi_d.len()].copy_from_slice(&d_hi_d);
+    //     ky_lo[0..d_lo_d.len()].copy_from_slice(&d_lo_d);
+    //
+    //     // array dims for kernels
+    //     let kx_dim = ArrayDim::from_shape(&[nx]);
+    //     let ky_dim = ArrayDim::from_shape(&[ny]);
+    //
+    //     // // buffers for shifted kernels
+    //     // let mut kx_hi_shift = vec![0.0f32; nx];
+    //     // let mut kx_lo_shift = vec![0.0f32; nx];
+    //     // let mut ky_hi_shift = vec![0.0f32; ny];
+    //     // let mut ky_lo_shift = vec![0.0f32; ny];
+    //     //
+    //     // // shift kernels for fft
+    //     // let inv = true;
+    //     // kx_dim.fftshift(&kx_hi, &mut kx_hi_shift, inv);
+    //     // kx_dim.fftshift(&kx_lo, &mut kx_lo_shift, inv);
+    //     // ky_dim.fftshift(&ky_hi, &mut ky_hi_shift, inv);
+    //     // ky_dim.fftshift(&ky_lo, &mut ky_lo_shift, inv);
+    //
+    //     // build the complex kernels for fft
+    //     let mut kx_hi: Vec<Complex32> = kx_hi.into_iter().map(|v| Complex32::new(v, 0.0)).collect();
+    //     let mut kx_lo: Vec<Complex32> = kx_lo.into_iter().map(|v| Complex32::new(v, 0.0)).collect();
+    //     let mut ky_hi: Vec<Complex32> = ky_hi.into_iter().map(|v| Complex32::new(v, 0.0)).collect();
+    //     let mut ky_lo: Vec<Complex32> = ky_lo.into_iter().map(|v| Complex32::new(v, 0.0)).collect();
+    //
+    //     // FFT the 1-D kernels
+    //     fftw_fftn(&mut kx_hi, &[nx], FftDirection::Forward, NormalizationType::Unitary);
+    //     fftw_fftn(&mut kx_lo, &[nx], FftDirection::Forward, NormalizationType::Unitary);
+    //     fftw_fftn(&mut ky_hi, &[ny], FftDirection::Forward, NormalizationType::Unitary);
+    //     fftw_fftn(&mut ky_lo, &[ny], FftDirection::Forward, NormalizationType::Unitary);
+    //
+    //     [kx_hi, kx_lo, ky_hi, ky_lo]
+    // }
 
     /// computes a single level of the SWT, starting at level 0. src is the size of the image, and
     /// dst should be large enough to store all subbands at all levels
@@ -317,7 +363,7 @@ impl SWT2Planner {
 
         // fft of band
         let mut x_f = src.to_vec();
-        fftw_fftn(&mut x_f, &[ny, nx], FftDirection::Forward, NormalizationType::Unitary);
+        fftw_fftn(&mut x_f, &[nx, ny], FftDirection::Forward, NormalizationType::Unitary);
 
         // Build 2-D outputs in Fourier space
         let mut ll_f = vec![Complex32::new(0.0, 0.0); x_f.len()];
@@ -344,10 +390,10 @@ impl SWT2Planner {
         }
 
         // transform each band back to image space
-        fftw_fftn(&mut ll_f, &[ny, nx], FftDirection::Inverse, NormalizationType::Unitary);
-        fftw_fftn(&mut lh_f, &[ny, nx], FftDirection::Inverse, NormalizationType::Unitary);
-        fftw_fftn(&mut hl_f, &[ny, nx], FftDirection::Inverse, NormalizationType::Unitary);
-        fftw_fftn(&mut hh_f, &[ny, nx], FftDirection::Inverse, NormalizationType::Unitary);
+        fftw_fftn(&mut ll_f, &[nx, ny], FftDirection::Inverse, NormalizationType::Unitary);
+        fftw_fftn(&mut lh_f, &[nx, ny], FftDirection::Inverse, NormalizationType::Unitary);
+        fftw_fftn(&mut hl_f, &[nx, ny], FftDirection::Inverse, NormalizationType::Unitary);
+        fftw_fftn(&mut hh_f, &[nx, ny], FftDirection::Inverse, NormalizationType::Unitary);
 
         // pack each band into the correct slot in the dst buffer
         // LL goes first
@@ -386,10 +432,10 @@ impl SWT2Planner {
         let mut hh = src[addr..addr + self.subband_size()].to_vec();
 
         // FFT all subbands
-        fftw_fftn(&mut ll, &[ny, nx], FftDirection::Forward, NormalizationType::Unitary);
-        fftw_fftn(&mut lh, &[ny, nx], FftDirection::Forward, NormalizationType::Unitary);
-        fftw_fftn(&mut hl, &[ny, nx], FftDirection::Forward, NormalizationType::Unitary);
-        fftw_fftn(&mut hh, &[ny, nx], FftDirection::Forward, NormalizationType::Unitary);
+        fftw_fftn(&mut ll, &[nx, ny], FftDirection::Forward, NormalizationType::Unitary);
+        fftw_fftn(&mut lh, &[nx, ny], FftDirection::Forward, NormalizationType::Unitary);
+        fftw_fftn(&mut hl, &[nx, ny], FftDirection::Forward, NormalizationType::Unitary);
+        fftw_fftn(&mut hh, &[nx, ny], FftDirection::Forward, NormalizationType::Unitary);
 
         let eps = 1e-6f32;
         let mut x_f = vec![Complex32::new(0.0, 0.0); n];
@@ -424,7 +470,7 @@ impl SWT2Planner {
             }
         }
 
-        fftw_fftn(&mut x_f, &[ny, nx], FftDirection::Inverse, NormalizationType::Unitary);
+        fftw_fftn(&mut x_f, &[nx, ny], FftDirection::Inverse, NormalizationType::Unitary);
 
         // write reconstructed approximation back into the LL slot
         dst.copy_from_slice(&x_f);
@@ -473,15 +519,53 @@ impl SWT2Planner {
 }
 
 
-/// returns a dilated filter based on level. This inserts 0s between filter entries, returning
-/// the dilated filter
-fn dilate_filter<T: Sized + Copy + Zero>(level: usize, filter: &[T]) -> Vec<T> {
-    assert_ne!(level, 0, "level must be greater than 0");
-    let d = 2i32.pow(level as u32 - 1) as usize;
-    let n = filter.len() * d;
+// /// returns a dilated filter based on level. This inserts 0s between filter entries, returning
+// /// the dilated filter
+// fn dilate_filter<T: Sized + Copy + Zero>(level: usize, filter: &[T]) -> Vec<T> {
+//     assert_ne!(level, 0, "level must be greater than 0");
+//     let d = 2i32.pow(level as u32 - 1) as usize;
+//     let n = filter.len() * d;
+//     let mut dilated = vec![T::zero(); n];
+//     dilated.chunks_exact_mut(d).zip(filter.iter()).for_each(|(chunk, c)| {
+//         chunk[0] = *c;
+//     });
+//     dilated
+// }
+
+fn dilate_filter<T: Copy + Zero>(level: usize, filter: &[T]) -> Vec<T> {
+    assert!(level >= 1, "level must be greater than 0");
+    assert!(!filter.is_empty(), "filter must not be empty");
+
+    let d = 1usize << (level - 1);
+    let n = (filter.len() - 1) * d + 1;
+
     let mut dilated = vec![T::zero(); n];
-    dilated.chunks_exact_mut(d).zip(filter.iter()).for_each(|(chunk, c)| {
-        chunk[0] = *c;
-    });
+
+    for (i, &c) in filter.iter().enumerate() {
+        dilated[i * d] = c;
+    }
+
     dilated
+}
+
+fn embed_filter_centered(filter: &[f32], n: usize) -> Vec<f32> {
+    assert!(
+        filter.len() <= n,
+        "dilated filter length {} exceeds signal length {}",
+        filter.len(),
+        n
+    );
+
+    let mut out = vec![0.0f32; n];
+
+    // Start with the usual FIR "center" choice.
+    // For even-length wavelet filters, this is the first thing to try.
+    let center = filter.len() / 2;
+
+    for (i, &v) in filter.iter().enumerate() {
+        let idx = (i + n - center) % n;
+        out[idx] = v;
+    }
+
+    out
 }

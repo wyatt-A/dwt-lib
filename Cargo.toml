@@ -1,0 +1,27 @@
+[package]
+name = "dwt-lib"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ndarray = { version = "0.15.6", features = ["rayon"] }
+cfl = { git = "git+ssh://git@github.com:/wyatt-A/cfl.git", branch = "main", features = ["nifti-dump"] }
+array-lib = { git = "git+ssh://git@github.com:/wyatt-A/array-lib.git", features = ["io-cfl", "io-nifti"] }
+dft-lib = { git = "git+ssh://git@github.com:/wyatt-A/dft-lib.git", features = ["fftw"] }
+num-complex = "0.4.5"
+num-traits = "0.2.18"
+rayon = "1.8.1"
+
+[dev-dependencies]
+criterion = "0.3.0"
+rand = "0.8.5"
+cfl = { git = "git+ssh://git@github.com:/wyatt-A/cfl.git", branch = "main", features = ["nifti-dump"] }
+
+[[bench]]
+name = "dwt_benchmark"
+harness = false
+
+[profile.test]
+opt-level = 3

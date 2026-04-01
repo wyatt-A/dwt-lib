@@ -269,27 +269,18 @@ impl SWT2Planner {
         let nx = image_size[0];
         let ny = image_size[1];
 
-        // Embed the dilated filters so their center is at index 0
-        // in the circular FFT domain.
-        let mut kx_hi: Vec<Complex32> = embed_filter_centered(&d_hi_d, nx)
-            .into_iter()
-            .map(|v| Complex32::new(v, 0.0))
-            .collect();
 
-        let mut kx_lo: Vec<Complex32> = embed_filter_centered(&d_lo_d, nx)
-            .into_iter()
-            .map(|v| Complex32::new(v, 0.0))
-            .collect();
+        let mut kx_hi = vec![Complex32::ZERO; nx];
+        kx_hi.iter_mut().zip(d_hi_d.iter().rev()).for_each(|(a, b)| a.re = *b);
 
-        let mut ky_hi: Vec<Complex32> = embed_filter_centered(&d_hi_d, ny)
-            .into_iter()
-            .map(|v| Complex32::new(v, 0.0))
-            .collect();
+        let mut kx_lo = vec![Complex32::ZERO; nx];
+        kx_lo.iter_mut().zip(d_lo_d.iter().rev()).for_each(|(a, b)| a.re = *b);
 
-        let mut ky_lo: Vec<Complex32> = embed_filter_centered(&d_lo_d, ny)
-            .into_iter()
-            .map(|v| Complex32::new(v, 0.0))
-            .collect();
+        let mut ky_hi = vec![Complex32::ZERO; ny];
+        ky_hi.iter_mut().zip(d_hi_d.iter().rev()).for_each(|(a, b)| a.re = *b);
+
+        let mut ky_lo = vec![Complex32::ZERO; ny];
+        ky_lo.iter_mut().zip(d_lo_d.iter().rev()).for_each(|(a, b)| a.re = *b);
 
         // FFT the 1-D kernels
         fftw_fftn(&mut kx_hi, &[nx], FftDirection::Forward, NormalizationType::Unitary);

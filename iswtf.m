@@ -39,30 +39,3 @@ function x = iswtf(LL, HL, LH, HH, level)
 
     x = real(ifftn(Num ./ (Den + 1e-12)));
 end
-
-% function x = iswtf(LL, HL, LH, HH, level)
-% 
-%     [~, ~, LoR, HiR] = wfilters('db2');
-% 
-%     nx = size(LL, 1);
-%     ny = size(LL, 2);
-% 
-%     kx_lo = filter_kernel(flip(LoR), level, nx)';
-%     kx_hi = filter_kernel(flip(HiR), level, nx)';
-%     ky_lo = filter_kernel(flip(LoR), level, ny)';
-%     ky_hi = filter_kernel(flip(HiR), level, ny)';
-% 
-%     RLL = kx_lo .* ky_lo';
-%     RLH = kx_lo .* ky_hi';
-%     RHL = kx_hi .* ky_lo';
-%     RHH = kx_hi .* ky_hi';
-% 
-%     Xrec = ...
-%         fftn(LL) .* RLL + ...
-%         fftn(LH) .* RLH + ...
-%         fftn(HL) .* RHL + ...
-%         fftn(HH) .* RHH;
-% 
-%     % 1/2 per dimension for undecimated reconstruction
-%     x = real(ifftn(Xrec)) / 4;
-% end

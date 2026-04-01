@@ -19,8 +19,9 @@ function f = filter_kernel(filter, level, n)
     
     k = zeros(1,n);
     k(1:Ld) = h;
-
-    h = circshift(k, -floor(Ld / 2));
+    
+    h = k;
+    %h = circshift(k, -floor(Ld / 2));
 
     % Pad/truncate to FFT length and transform
     f = fft(h);

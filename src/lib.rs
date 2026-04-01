@@ -3,6 +3,7 @@ pub mod wavelet;
 pub mod dwt3;
 mod array_utils;
 pub mod swt;
+pub mod swt2;
 
 use ndarray::{s, ArrayD, Axis, ShapeBuilder};
 use num_complex::{Complex, Complex32};

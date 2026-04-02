@@ -6,7 +6,7 @@ r = iswtf(LL,HL,LH,HH,1);
 niftiwrite(real(r),"rec_fft");
 
 %% matlab swt
-swc = swt2(x,2,"db2");
+swc = swt2(x,3,"db2");
 swc = shrink_complex(swc,0.1);
 rec = iswt2(swc,"db2");
 niftiwrite(swc,"swc");

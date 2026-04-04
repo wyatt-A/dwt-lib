@@ -7,6 +7,52 @@ use crate::swt2::SWT2Plan;
 use crate::swt::{prep_kernel, soft_threshold};
 use crate::wavelet::{Wavelet, WaveletFilter};
 
+#[cfg(test)]
+mod tests {
+    use std::alloc::alloc;
+    use array_lib::ArrayDim;
+    use array_lib::io_cfl::read_cfl;
+    use array_lib::io_nifti::write_nifti;
+    use num_complex::Complex32;
+    use crate::swt3::SWT3Plan;
+    use crate::wavelet::{Wavelet, WaveletType};
+
+    #[test]
+    fn test() {
+
+        // build a test array
+        let x_dims = ArrayDim::from_shape(&[10,25,7]);
+        let mut x = x_dims.alloc(Complex32::ZERO);
+        x.iter_mut().enumerate().for_each(|(e, x)| {
+            let [i,j,k,..] = x_dims.calc_idx(e);
+            *x = Complex32::new(i as f32 + j as f32, k as f32);
+        });
+
+        let w = SWT3Plan::new(x_dims.shape_ns(),2,Wavelet::new(WaveletType::Daubechies2));
+
+        let t_dims = ArrayDim::from_shape(&w.t_domain_shape());
+        let mut t = t_dims.alloc(Complex32::ZERO);
+
+        w.decompose(&x, &mut t);
+
+        let xe = x.iter().map(|x|x.norm_sqr() as f64).sum::<f64>();
+        let te = t.iter().map(|x|x.norm_sqr() as f64).sum::<f64>();
+
+        println!("x-energy: {}",xe);
+        println!("t-energy: {}",te);
+
+        w.reconstruct(t.as_mut_slice(), x.as_mut_slice());
+
+        write_nifti("out.nii",&t.iter().map(|x|x.norm()).collect::<Vec<_>>(),t_dims);
+
+        println!("x-energy: {}",xe);
+    }
+
+
+
+
+}
+
 pub struct SWT3Plan {
     /// dimensions of signal (image)
     dims: [usize; 3],
@@ -68,7 +114,14 @@ pub struct SWT3Plan {
 }
 
 impl SWT3Plan {
-    pub fn new(nx: usize, ny: usize, nz: usize, levels: usize, w: Wavelet<f32>) -> SWT3Plan {
+    pub fn new(size:&[usize], levels: usize, w: Wavelet<f32>) -> SWT3Plan {
+
+        assert!(size.len() > 2);
+
+        let nx = size[0];
+        let ny = size[1];
+        let nz = size[2];
+
         // fourier kernels
         let mut d_lll = vec![];
         let mut d_llh = vec![];
@@ -246,6 +299,7 @@ impl SWT3Plan {
         let x = tmp.as_mut_slice();
         x.copy_from_slice(src);
 
+
         fftw_fftn(x, &self.dims, FftDirection::Forward, NormalizationType::Unitary);
 
         let kernels = [
@@ -259,7 +313,8 @@ impl SWT3Plan {
             self.d_hhh[level].as_slice(),
         ];
 
-        for (band, kern) in dst.chunks_exact_mut(n).zip(kernels) {
+        for (i,(band, kern)) in dst.chunks_exact_mut(n).zip(kernels).enumerate() {
+            println!("decomposing band {}",i+1);
             for ((b, &k), &xf) in band.iter_mut().zip(kern.iter()).zip(x.iter()) {
                 *b = xf * k;
             }
@@ -344,6 +399,11 @@ impl SWT3Plan {
     /// This is 7 * n_levels + 1 subbands
     pub fn t_domain_size(&self) -> usize {
         self.subband_size() * self.t_bands()
+    }
+
+    /// returns the shape of the transform domain
+    pub fn t_domain_shape(&self) -> [usize;4] {
+        [self.dims[0],self.dims[1],self.dims[2],self.t_bands()]
     }
 
     /// returns the number of subbands for the decomposition

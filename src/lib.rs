@@ -4,6 +4,7 @@ pub mod dwt3;
 mod array_utils;
 pub mod swt;
 pub mod swt2;
+pub mod swt3;
 
 use ndarray::{s, ArrayD, Axis, ShapeBuilder};
 use num_complex::{Complex, Complex32};

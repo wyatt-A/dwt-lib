@@ -4,6 +4,7 @@ use dft_lib::fftw_fft::{fftw_fftn, fftw_fftn_batched};
 use num_complex::Complex32;
 use std::cell::RefCell;
 use std::ops::Range;
+use crate::swt::{prep_kernel, soft_threshold};
 
 pub struct SWT2Plan {
     /// dimensions of signal (image)
@@ -43,8 +44,13 @@ pub struct SWT2Plan {
 impl SWT2Plan {
     /// soft threshold only the detail bands, leaving the approx band intact. t_domain is the
     /// entire transform domain.
-    pub fn soft_thresh(&self, t_domain: &mut [Complex32], lambda: f32) {
+    pub fn soft_thresh_detail(&self, t_domain: &mut [Complex32], lambda: f32) {
         soft_threshold(&mut t_domain[self.subband_size()..], lambda);
+    }
+
+    /// soft threshold all bands, including the approximation band
+    pub fn soft_thresh(&self, t_domain: &mut [Complex32], lambda: f32) {
+        soft_threshold(t_domain, lambda);
     }
 
     pub fn reconstruct(&self, src: &[Complex32], dst: &mut [Complex32]) {
@@ -208,7 +214,7 @@ impl SWT2Plan {
         for level in 1..=levels {
             let [d_ll_k, d_lh_k, d_hl_k, d_hh_k] = calc_kernel_2d(nx, ny, w.lo_d(), w.hi_d(), level);
             let [r_ll_k, r_lh_k, r_hl_k, r_hh_k] = calc_kernel_2d(nx, ny, w.lo_r(), w.hi_r(), level);
-            let tf = calc_transfer_fn([&d_ll_k, &d_lh_k, &d_hl_k, &d_hh_k, &r_ll_k, &r_lh_k, &r_hl_k, &r_hh_k]);
+            let tf = calc_transfer_fn_2d([&d_ll_k, &d_lh_k, &d_hl_k, &d_hh_k, &r_ll_k, &r_lh_k, &r_hl_k, &r_hh_k]);
             h.push(tf);
             d_ll.push(d_ll_k);
             d_lh.push(d_lh_k);
@@ -247,7 +253,7 @@ impl SWT2Plan {
     }
 }
 
-fn calc_transfer_fn(kernels: [&Vec<Complex32>; 8]) -> Vec<Complex32> {
+fn calc_transfer_fn_2d(kernels: [&Vec<Complex32>; 8]) -> Vec<Complex32> {
     let n = kernels[0].len();
     let mut h = vec![Complex32::ZERO; n];
     for i in 0..n {
@@ -257,7 +263,6 @@ fn calc_transfer_fn(kernels: [&Vec<Complex32>; 8]) -> Vec<Complex32> {
                 kernels[1][i] * kernels[5][i] +
                 kernels[2][i] * kernels[6][i] +
                 kernels[3][i] * kernels[7][i]
-        // + Complex32::new(f32::EPSILON, 0.);
     }
     h
 }
@@ -273,7 +278,7 @@ fn calc_kernel_2d(nx: usize, ny: usize, lo: &[f32], hi: &[f32], level: usize) ->
     let mut hl_k = vec![Complex32::ZERO; nx * ny];
     let mut hh_k = vec![Complex32::ZERO; nx * ny];
 
-    let scale = ((ny * nx) as f32).sqrt() / 2.;
+    let scale = ((ny * nx) as f32).sqrt() / 4f32.sqrt();
     for j in 0..ny {
         for i in 0..nx {
             let idx = nx * j + i;
@@ -287,39 +292,6 @@ fn calc_kernel_2d(nx: usize, ny: usize, lo: &[f32], hi: &[f32], level: usize) ->
     [ll_k, lh_k, hl_k, hh_k]
 }
 
-/// returns the dilation factor for the analysis filter. Level must be greater than 0
-fn dilation_factor(level: usize) -> usize {
-    assert!(level > 0, "level must be greater than 0");
-    2usize.pow(level as u32 - 1)
-}
 
-/// prepare the analysis kernel from a filter tap and desired level with some size n.
-/// This returns the filter fourier kernel of length n
-fn prep_kernel(tap: &[f32], level: usize, n: usize) -> Vec<Complex32> {
-    // get dilation factor (spacing)
-    let s = dilation_factor(level);
-    // calculate the max size of dilated filter
-    let ld = (tap.len() - 1) * s + 1;
-    assert!(ld <= n, "dilated filter length {ld} exceeds padded array size {n}");
-    // allocate the kernel
-    let mut d = vec![Complex32::ZERO; n];
-    // load the filter values into the buffer with spacing s
-    d.chunks_exact_mut(s).zip(tap.iter().rev()).for_each(|(a, b)| a[0].re = *b);
-    // go to fourier domain and return the kernel
-    fftw_fftn(&mut d, &[n], FftDirection::Forward, NormalizationType::Unitary);
-    d
-}
 
-#[inline]
-fn soft_thresh_complex(z: Complex32, lambda: f32) -> Complex32 {
-    let mag = z.norm();
-    if mag <= lambda {
-        Complex32::new(0.0, 0.0)
-    } else {
-        z * (1.0 - lambda / mag)
-    }
-}
 
-fn soft_threshold(z: &mut [Complex32], lambda: f32) {
-    z.iter_mut().for_each(|x| *x = soft_thresh_complex(*x, lambda));
-}

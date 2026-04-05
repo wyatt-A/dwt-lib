@@ -1,11 +1,19 @@
 use std::cell::RefCell;
 use std::ops::Range;
+use std::time::Instant;
 use dft_lib::common::{FftDirection, NormalizationType};
-use dft_lib::fftw_fft::{fftw_fftn, fftw_fftn_batched};
+
 use num_complex::Complex32;
 use crate::swt2::SWT2Plan;
 use crate::swt::{prep_kernel, soft_threshold};
 use crate::wavelet::{Wavelet, WaveletFilter};
+use rayon::prelude::*;
+
+#[cfg(feature = "cuda")]
+use dft_lib::cu_fft::{cu_fftn as fftn, cu_fftn_batch as fftn_batched};
+
+#[cfg(not(feature = "cuda"))]
+use dft_lib::fftw_fft::{fftw_fftn as fftn, fftw_fftn_batched as fftn_batched};
 
 #[cfg(test)]
 mod tests {
@@ -108,9 +116,9 @@ pub struct SWT3Plan {
     /// wavelet for analysis
     w: Wavelet<f32>,
 
-    /// temp buffers for calculations
-    tmp_x: RefCell<Vec<Complex32>>, // size = nx * ny * nz
-    tmp_y: RefCell<Vec<Complex32>>, // size = nx * ny * nz * 8
+    // /// temp buffers for calculations
+    // tmp_x: RefCell<Vec<Complex32>>, // size = nx * ny * nz
+    // tmp_y: RefCell<Vec<Complex32>>, // size = nx * ny * nz * 8
 }
 
 impl SWT3Plan {
@@ -186,8 +194,8 @@ impl SWT3Plan {
         let n = nx * ny * nz;
 
         // temp buffer to avoid re-allocations
-        let tmp_x = RefCell::new(vec![Complex32::ZERO; n]);
-        let tmp_y = RefCell::new(vec![Complex32::ZERO; n * 8]);
+        // let tmp_x = RefCell::new(vec![Complex32::ZERO; n]);
+        // let tmp_y = RefCell::new(vec![Complex32::ZERO; n * 8]);
 
         SWT3Plan {
             dims: [nx, ny, nz],
@@ -213,8 +221,8 @@ impl SWT3Plan {
 
             h,
             w,
-            tmp_x,
-            tmp_y,
+            // tmp_x,
+            // tmp_y,
         }
     }
 
@@ -295,12 +303,10 @@ impl SWT3Plan {
         assert_eq!(src.len(), n);
         assert_eq!(dst.len(), 8 * n);
 
-        let mut tmp = self.tmp_x.borrow_mut();
-        let x = tmp.as_mut_slice();
+        let mut x = vec![Complex32::ZERO;self.subband_size()];
         x.copy_from_slice(src);
 
-
-        fftw_fftn(x, &self.dims, FftDirection::Forward, NormalizationType::Unitary);
+        fftn(&mut x, &self.dims, FftDirection::Forward, NormalizationType::Unitary);
 
         let kernels = [
             self.d_lll[level].as_slice(),
@@ -312,15 +318,12 @@ impl SWT3Plan {
             self.d_hhl[level].as_slice(),
             self.d_hhh[level].as_slice(),
         ];
-
-        for (i,(band, kern)) in dst.chunks_exact_mut(n).zip(kernels).enumerate() {
-            println!("decomposing band {}",i+1);
+        dst.par_chunks_exact_mut(n).zip(kernels.par_iter()).for_each(|(band,kern)| {
             for ((b, &k), &xf) in band.iter_mut().zip(kern.iter()).zip(x.iter()) {
                 *b = xf * k;
             }
-
-            fftw_fftn(band, &self.dims, FftDirection::Inverse, NormalizationType::Unitary);
-        }
+        });
+        fftn_batched(dst, &self.dims,kernels.len(), FftDirection::Inverse, NormalizationType::Unitary);
     }
 
     pub fn recon_level(&self, level: usize, src: &[Complex32], dst: &mut [Complex32]) {
@@ -331,17 +334,10 @@ impl SWT3Plan {
         assert_eq!(dst.len(), n);
         assert_eq!(src.len(), 8 * n);
 
-        let mut tmp = self.tmp_y.borrow_mut();
-        let y = tmp.as_mut_slice();
+        let mut y = vec![Complex32::ZERO;self.subband_size() * 8];
         y.copy_from_slice(src);
 
-        fftw_fftn_batched(
-            y,
-            &self.dims,
-            8,
-            FftDirection::Forward,
-            NormalizationType::Unitary,
-        );
+        fftn_batched(&mut y,&self.dims,8,FftDirection::Forward,NormalizationType::Unitary);
 
         let kernels = [
             self.r_lll[level].as_slice(),
@@ -356,22 +352,20 @@ impl SWT3Plan {
 
         let h = self.h[level].as_slice();
 
-        for i in 0..n {
+        dst.par_iter_mut().enumerate().for_each(|(i,dst)|{
             let mut sum = Complex32::ZERO;
             for b in 0..8 {
                 sum += kernels[b][i] * y[b * n + i];
             }
-
             let denom = if h[i].norm() < EPS {
                 Complex32::new(EPS, 0.0)
             } else {
                 h[i]
             };
+            *dst = sum / denom;
+        });
 
-            dst[i] = sum / denom;
-        }
-
-        fftw_fftn(dst, &self.dims, FftDirection::Inverse, NormalizationType::Unitary);
+        fftn(dst, &self.dims, FftDirection::Inverse, NormalizationType::Unitary)
     }
 
     pub fn subband_size(&self) -> usize {

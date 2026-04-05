@@ -18,5 +18,9 @@ rayon = "1.8.1"
 rand = "0.8.5"
 cfl = { git = "git+ssh://git@github.com:/wyatt-A/cfl.git", branch = "main", features = ["nifti-dump"] }
 
+[features]
+cuda = ["dft-lib/cuda"]
+
+
 [profile.test]
 opt-level = 3

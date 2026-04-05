@@ -1,3 +1,4 @@
+use std::time::Instant;
 use array_lib::io_nifti::{read_nifti, write_nifti};
 use array_lib::ArrayDim;
 use array_lib::io_cfl::read_cfl;
@@ -9,16 +10,28 @@ use dwt_lib::swt3::SWT3Plan;
 fn main() {
 
     println!("loading image");
-    let (x,x_dims) = read_cfl("out-0");
+    let (mut x,x_dims) = read_cfl("out-0");
     println!("building transform data");
     let w = SWT3Plan::new(x_dims.shape_ns(),2,Wavelet::new(WaveletType::Daubechies2));
     let t_dims = ArrayDim::from_shape(&w.t_domain_shape());
     let mut t = t_dims.alloc(Complex32::ZERO);
 
     println!("decomposing");
+    let now = Instant::now();
     w.decompose(&x, &mut t);
+    let dur = now.elapsed();
+    println!("decomposition took {} ms", dur.as_millis());
+
+    w.soft_thresh(&mut t,0.1);
+    println!("reconstructing");
+    let now = Instant::now();
+    w.reconstruct(&t, &mut x);
+    let dur = now.elapsed();
+    println!("reconstruction took {} ms", dur.as_millis());
+
     println!("finishing");
-    write_nifti("t.nii",&t.iter().map(|x|x.norm()).collect::<Vec<_>>(),t_dims);
+    //write_nifti("t.nii",&t.iter().map(|x|x.norm()).collect::<Vec<_>>(),t_dims);
+    //write_nifti("o.nii",&x.iter().map(|x|x.norm()).collect::<Vec<_>>(),x_dims);
 }
 
 

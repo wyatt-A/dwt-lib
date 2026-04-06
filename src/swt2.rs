@@ -1,10 +1,18 @@
+use crate::swt::{prep_kernel, soft_threshold};
 use crate::wavelet::{Wavelet, WaveletFilter};
 use dft_lib::common::{FftDirection, NormalizationType};
-use dft_lib::fftw_fft::{fftw_fftn, fftw_fftn_batched};
 use num_complex::Complex32;
 use std::cell::RefCell;
 use std::ops::Range;
-use crate::swt::{prep_kernel, soft_threshold};
+
+#[cfg(feature = "cuda")]
+use dft_lib::cu_fft::{cu_fftn as fftn, cu_fftn_batch as fftn_batched};
+
+#[cfg(feature = "fftw")]
+use dft_lib::fftw_fft::{fftw_fftn as fftn, fftw_fftn_batched as fftn_batched};
+
+#[cfg(all(not(feature = "cuda"), not(feature = "fftw")))]
+use dft_lib::rs_fft::{rs_fftn as fftn, rs_fftn_batched as fftn_batched};
 
 pub struct SWT2Plan {
     /// dimensions of signal (image)
@@ -143,7 +151,7 @@ impl SWT2Plan {
         let x = tmp.as_mut_slice();
         x.copy_from_slice(src);
 
-        fftw_fftn(x, &self.dims, FftDirection::Forward, NormalizationType::Unitary);
+        fftn(x, &self.dims, FftDirection::Forward, NormalizationType::Unitary);
 
         let d_ll = self.d_ll[level].as_slice();
         let d_lh = self.d_lh[level].as_slice();
@@ -155,7 +163,7 @@ impl SWT2Plan {
             band.iter_mut().zip(kern.iter()).zip(x.iter()).for_each(|((b, k), x)| {
                 *b = *x * k;
             });
-            fftw_fftn(band, &self.dims, FftDirection::Inverse, NormalizationType::Unitary);
+            fftn(band, &self.dims, FftDirection::Inverse, NormalizationType::Unitary);
         });
     }
 
@@ -170,7 +178,7 @@ impl SWT2Plan {
         let y = tmp.as_mut_slice();
         y.copy_from_slice(src);
 
-        fftw_fftn_batched(y, &self.dims, 4, FftDirection::Forward, NormalizationType::Unitary);
+        fftn_batched(y, &self.dims, 4, FftDirection::Forward, NormalizationType::Unitary);
 
         let r_ll = self.r_ll[level].as_slice();
         let r_lh = self.r_lh[level].as_slice();
@@ -194,7 +202,7 @@ impl SWT2Plan {
             *x /= denom;
         });
 
-        fftw_fftn(dst, &self.dims, FftDirection::Inverse, NormalizationType::Unitary);
+        fftn(dst, &self.dims, FftDirection::Inverse, NormalizationType::Unitary);
     }
 
     pub fn new(nx: usize, ny: usize, levels: usize, w: &Wavelet<f32>) -> SWT2Plan {

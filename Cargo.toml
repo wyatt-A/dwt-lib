@@ -9,7 +9,7 @@ edition = "2021"
 ndarray = { version = "0.15.6", features = ["rayon"] }
 cfl = { git = "git+ssh://git@github.com:/wyatt-A/cfl.git", branch = "main", features = ["nifti-dump"] }
 array-lib = { git = "git+ssh://git@github.com:/wyatt-A/array-lib.git", features = ["io-cfl", "io-nifti"] }
-dft-lib = { git = "git+ssh://git@github.com:/wyatt-A/dft-lib.git", features = ["fftw"] }
+dft-lib = { git = "git+ssh://git@github.com:/wyatt-A/dft-lib.git" }
 num-complex = "0.4.5"
 num-traits = "0.2.18"
 rayon = "1.8.1"
@@ -20,7 +20,7 @@ cfl = { git = "git+ssh://git@github.com:/wyatt-A/cfl.git", branch = "main", feat
 
 [features]
 cuda = ["dft-lib/cuda"]
-
+fftw = ["dft-lib/fftw"]
 
 [profile.test]
 opt-level = 3

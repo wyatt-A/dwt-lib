@@ -1,64 +1,58 @@
-use std::cell::RefCell;
-use std::ops::Range;
-use std::time::Instant;
 use dft_lib::common::{FftDirection, NormalizationType};
+use std::ops::Range;
 
-use num_complex::Complex32;
-use crate::swt2::SWT2Plan;
 use crate::swt::{prep_kernel, soft_threshold};
 use crate::wavelet::{Wavelet, WaveletFilter};
+use num_complex::Complex32;
 use rayon::prelude::*;
 
 #[cfg(feature = "cuda")]
 use dft_lib::cu_fft::{cu_fftn as fftn, cu_fftn_batch as fftn_batched};
 
-#[cfg(not(feature = "cuda"))]
+#[cfg(feature = "fftw")]
 use dft_lib::fftw_fft::{fftw_fftn as fftn, fftw_fftn_batched as fftn_batched};
+
+#[cfg(all(not(feature = "cuda"), not(feature = "fftw")))]
+use dft_lib::rs_fft::{rs_fftn as fftn, rs_fftn_batched as fftn_batched};
 
 #[cfg(test)]
 mod tests {
-    use std::alloc::alloc;
-    use array_lib::ArrayDim;
-    use array_lib::io_cfl::read_cfl;
-    use array_lib::io_nifti::write_nifti;
-    use num_complex::Complex32;
     use crate::swt3::SWT3Plan;
     use crate::wavelet::{Wavelet, WaveletType};
+    use array_lib::io_nifti::write_nifti;
+    use array_lib::ArrayDim;
+    use num_complex::Complex32;
 
     #[test]
     fn test() {
 
         // build a test array
-        let x_dims = ArrayDim::from_shape(&[10,25,7]);
+        let x_dims = ArrayDim::from_shape(&[10, 25, 7]);
         let mut x = x_dims.alloc(Complex32::ZERO);
         x.iter_mut().enumerate().for_each(|(e, x)| {
-            let [i,j,k,..] = x_dims.calc_idx(e);
+            let [i, j, k, ..] = x_dims.calc_idx(e);
             *x = Complex32::new(i as f32 + j as f32, k as f32);
         });
 
-        let w = SWT3Plan::new(x_dims.shape_ns(),2,Wavelet::new(WaveletType::Daubechies2));
+        let w = SWT3Plan::new(x_dims.shape_ns(), 2, Wavelet::new(WaveletType::Daubechies2));
 
         let t_dims = ArrayDim::from_shape(&w.t_domain_shape());
         let mut t = t_dims.alloc(Complex32::ZERO);
 
         w.decompose(&x, &mut t);
 
-        let xe = x.iter().map(|x|x.norm_sqr() as f64).sum::<f64>();
-        let te = t.iter().map(|x|x.norm_sqr() as f64).sum::<f64>();
+        let xe = x.iter().map(|x| x.norm_sqr() as f64).sum::<f64>();
+        let te = t.iter().map(|x| x.norm_sqr() as f64).sum::<f64>();
 
-        println!("x-energy: {}",xe);
-        println!("t-energy: {}",te);
+        println!("x-energy: {}", xe);
+        println!("t-energy: {}", te);
 
         w.reconstruct(t.as_mut_slice(), x.as_mut_slice());
 
-        write_nifti("out.nii",&t.iter().map(|x|x.norm()).collect::<Vec<_>>(),t_dims);
+        write_nifti("out.nii", &t.iter().map(|x| x.norm()).collect::<Vec<_>>(), t_dims);
 
-        println!("x-energy: {}",xe);
+        println!("x-energy: {}", xe);
     }
-
-
-
-
 }
 
 pub struct SWT3Plan {
@@ -122,8 +116,7 @@ pub struct SWT3Plan {
 }
 
 impl SWT3Plan {
-    pub fn new(size:&[usize], levels: usize, w: Wavelet<f32>) -> SWT3Plan {
-
+    pub fn new(size: &[usize], levels: usize, w: Wavelet<f32>) -> SWT3Plan {
         assert!(size.len() > 2);
 
         let nx = size[0];
@@ -303,7 +296,7 @@ impl SWT3Plan {
         assert_eq!(src.len(), n);
         assert_eq!(dst.len(), 8 * n);
 
-        let mut x = vec![Complex32::ZERO;self.subband_size()];
+        let mut x = vec![Complex32::ZERO; self.subband_size()];
         x.copy_from_slice(src);
 
         fftn(&mut x, &self.dims, FftDirection::Forward, NormalizationType::Unitary);
@@ -318,12 +311,12 @@ impl SWT3Plan {
             self.d_hhl[level].as_slice(),
             self.d_hhh[level].as_slice(),
         ];
-        dst.par_chunks_exact_mut(n).zip(kernels.par_iter()).for_each(|(band,kern)| {
+        dst.par_chunks_exact_mut(n).zip(kernels.par_iter()).for_each(|(band, kern)| {
             for ((b, &k), &xf) in band.iter_mut().zip(kern.iter()).zip(x.iter()) {
                 *b = xf * k;
             }
         });
-        fftn_batched(dst, &self.dims,kernels.len(), FftDirection::Inverse, NormalizationType::Unitary);
+        fftn_batched(dst, &self.dims, kernels.len(), FftDirection::Inverse, NormalizationType::Unitary);
     }
 
     pub fn recon_level(&self, level: usize, src: &[Complex32], dst: &mut [Complex32]) {
@@ -334,10 +327,10 @@ impl SWT3Plan {
         assert_eq!(dst.len(), n);
         assert_eq!(src.len(), 8 * n);
 
-        let mut y = vec![Complex32::ZERO;self.subband_size() * 8];
+        let mut y = vec![Complex32::ZERO; self.subband_size() * 8];
         y.copy_from_slice(src);
 
-        fftn_batched(&mut y,&self.dims,8,FftDirection::Forward,NormalizationType::Unitary);
+        fftn_batched(&mut y, &self.dims, 8, FftDirection::Forward, NormalizationType::Unitary);
 
         let kernels = [
             self.r_lll[level].as_slice(),
@@ -352,7 +345,7 @@ impl SWT3Plan {
 
         let h = self.h[level].as_slice();
 
-        dst.par_iter_mut().enumerate().for_each(|(i,dst)|{
+        dst.par_iter_mut().enumerate().for_each(|(i, dst)| {
             let mut sum = Complex32::ZERO;
             for b in 0..8 {
                 sum += kernels[b][i] * y[b * n + i];
@@ -396,8 +389,8 @@ impl SWT3Plan {
     }
 
     /// returns the shape of the transform domain
-    pub fn t_domain_shape(&self) -> [usize;4] {
-        [self.dims[0],self.dims[1],self.dims[2],self.t_bands()]
+    pub fn t_domain_shape(&self) -> [usize; 4] {
+        [self.dims[0], self.dims[1], self.dims[2], self.t_bands()]
     }
 
     /// returns the number of subbands for the decomposition

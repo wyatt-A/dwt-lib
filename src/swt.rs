@@ -1,6 +1,14 @@
 use dft_lib::common::{FftDirection, NormalizationType};
-use dft_lib::fftw_fft::fftw_fftn;
 use num_complex::Complex32;
+
+#[cfg(feature = "cuda")]
+use dft_lib::cu_fft::{cu_fftn as fftn, cu_fftn_batch as fftn_batched};
+
+#[cfg(feature = "fftw")]
+use dft_lib::fftw_fft::{fftw_fftn as fftn, fftw_fftn_batched as fftn_batched};
+
+#[cfg(all(not(feature = "cuda"), not(feature = "fftw")))]
+use dft_lib::rs_fft::rs_fftn as fftn;
 
 /// returns the dilation factor for the analysis filter. Level must be greater than 0
 pub fn dilation_factor(level: usize) -> usize {
@@ -21,7 +29,7 @@ pub fn prep_kernel(tap: &[f32], level: usize, n: usize) -> Vec<Complex32> {
     // load the filter values into the buffer with spacing s
     d.chunks_exact_mut(s).zip(tap.iter().rev()).for_each(|(a, b)| a[0].re = *b);
     // go to fourier domain and return the kernel
-    fftw_fftn(&mut d, &[n], FftDirection::Forward, NormalizationType::Unitary);
+    fftn(&mut d, &[n], FftDirection::Forward, NormalizationType::Unitary);
     d
 }
 

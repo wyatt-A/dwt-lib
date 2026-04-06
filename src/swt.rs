@@ -16,46 +16,46 @@ pub fn dilation_factor(level: usize) -> usize {
     2usize.pow(level as u32 - 1)
 }
 
-// /// prepare the analysis kernel from a filter tap and desired level with some size n.
-// /// This returns the filter fourier kernel of length n
-// pub fn prep_kernel(tap: &[f32], level: usize, n: usize) -> Vec<Complex32> {
-//     // get dilation factor (spacing)
-//     let s = dilation_factor(level);
-//     // calculate the max size of dilated filter
-//     let ld = (tap.len() - 1) * s + 1;
-//     assert!(ld <= n, "dilated filter length {ld} exceeds padded array size {n}");
-//     // allocate the kernel
-//     let mut d = vec![Complex32::ZERO; n];
-//     // load the filter values into the buffer with spacing s
-//     d.chunks_exact_mut(s).zip(tap.iter().rev()).for_each(|(a, b)| a[0].re = *b);
-//     // go to fourier domain and return the kernel
-//     fftn(&mut d, &[n], FftDirection::Forward, NormalizationType::Unitary);
-//     d
-// }
-
-/// prepare the analysis kernel from a filter tap and desired level with size n.
-/// This returns the circular Fourier kernel of length n, even when the
-/// dilated filter support exceeds n.
+/// prepare the analysis kernel from a filter tap and desired level with some size n.
+/// This returns the filter fourier kernel of length n
 pub fn prep_kernel(tap: &[f32], level: usize, n: usize) -> Vec<Complex32> {
-    assert!(n > 0, "n must be > 0");
-    assert!(!tap.is_empty(), "tap must not be empty");
-
-    // dilation factor (spacing)
+    // get dilation factor (spacing)
     let s = dilation_factor(level);
-
-    // build the circularly wrapped spatial kernel of length n
+    // calculate the max size of dilated filter
+    let ld = (tap.len() - 1) * s + 1;
+    assert!(ld <= n, "dilated filter length {ld} exceeds padded array size {n}");
+    // allocate the kernel
     let mut d = vec![Complex32::ZERO; n];
-
-    // reverse taps here to preserve your current convolution convention
-    for (m, &coeff) in tap.iter().rev().enumerate() {
-        let idx = (m * s) % n;
-        d[idx].re += coeff;
-    }
-
-    // go to Fourier domain and return the kernel
+    // load the filter values into the buffer with spacing s
+    d.chunks_exact_mut(s).zip(tap.iter().rev()).for_each(|(a, b)| a[0].re = *b);
+    // go to fourier domain and return the kernel
     fftn(&mut d, &[n], FftDirection::Forward, NormalizationType::Unitary);
     d
 }
+
+// /// prepare the analysis kernel from a filter tap and desired level with size n.
+// /// This returns the circular Fourier kernel of length n, even when the
+// /// dilated filter support exceeds n.
+// pub fn prep_kernel(tap: &[f32], level: usize, n: usize) -> Vec<Complex32> {
+//     assert!(n > 0, "n must be > 0");
+//     assert!(!tap.is_empty(), "tap must not be empty");
+//
+//     // dilation factor (spacing)
+//     let s = dilation_factor(level);
+//
+//     // build the circularly wrapped spatial kernel of length n
+//     let mut d = vec![Complex32::ZERO; n];
+//
+//     // reverse taps here to preserve your current convolution convention
+//     for (m, &coeff) in tap.iter().rev().enumerate() {
+//         let idx = (m * s) % n;
+//         d[idx].re += coeff;
+//     }
+//
+//     // go to Fourier domain and return the kernel
+//     fftn(&mut d, &[n], FftDirection::Forward, NormalizationType::Unitary);
+//     d
+// }
 
 pub fn soft_threshold(z: &mut [Complex32], lambda: f32) {
     z.iter_mut().for_each(|x| *x = soft_thresh_complex(*x, lambda));
